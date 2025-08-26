@@ -8,6 +8,12 @@ const board = Chessboard('board', {
 const statusEl = document.getElementById('status');
 
 async function onDrop(source, target) {
+  // Restrict moves to White's turn
+  if (game.turn() !== 'w') {
+    statusEl.innerHTML = 'Wait for Black (AI) to move';
+    return 'snapback';
+  }
+
   // See if move is legal
   const move = game.move({ from: source, to: target, promotion: 'q' });
   if (move === null) return 'snapback';
@@ -17,6 +23,7 @@ async function onDrop(source, target) {
   // Request AI move for Black
   if (!game.game_over() && game.turn() === 'b') {
     try {
+      statusEl.innerHTML = 'AI thinking...';
       const aiMove = await getAIMove(game.pgn());
       if (aiMove) {
         try {
@@ -24,14 +31,15 @@ async function onDrop(source, target) {
           board.position(game.fen());
           updateStatus();
         } catch (err) {
-          statusEl.innerHTML = 'Error: Invalid AI move';
+          statusEl.innerHTML = `Error: Invalid AI move (${aiMove})`;
           console.error('Invalid AI move:', aiMove, err);
         }
       } else {
         statusEl.innerHTML = 'Error: Could not get AI move';
+        console.error('No AI move returned');
       }
     } catch (err) {
-      statusEl.innerHTML = 'Error: Failed to connect to AI';
+      statusEl.innerHTML = `Error: Failed to connect to AI (${err.message})`;
       console.error('AI move error:', err);
     }
   }
@@ -45,7 +53,7 @@ async function getAIMove(movesSoFar) {
         "Content-Type": "application/json",
         "x-api-key": "MY_SECRET_KEY_123"
       },
-      body: JSON.stringify({ moves: movesSoFar })
+      body: JSON.stringify({ moves: movesSoFar || "" }) // Handle empty PGN
     });
 
     if (!response.ok) {
