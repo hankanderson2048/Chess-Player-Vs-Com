@@ -1,48 +1,17 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Chess with AI</title>
+  <meta charset="UTF-8">
+  <title>Chess vs AI</title>
   <link rel="stylesheet" href="css/chessboard-1.0.0.min.css">
-  <style>
-    body { font-family: Arial, sans-serif; text-align: center; margin: 20px; }
-    #board { width: 400px; margin: 20px auto; }
-    button { margin-top: 10px; padding: 10px; font-size: 16px; }
-  </style>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <h1>♟️ Chess with AI</h1>
-  <div id="board"></div>
-  <button onclick="getAiMove()">Get AI Move</button>
+  <h1>Play Chess vs AI</h1>
+  <div id="board" style="width: 500px"></div>
 
-  <script src="js/jquery-3.7.1.min.js"></script>
-  <script src="js/chess.js/"></script>
+  <script src="js/chess.js"></script>
   <script src="js/chessboard-1.0.0.min.js"></script>
-  <script>
-    const game = new Chess();
-    const board = Chessboard('board', {
-      draggable: true,
-      position: 'start',
-      onDrop: (source, target) => {
-        const move = game.move({ from: source, to: target, promotion: 'q' });
-        if (!move) return 'snapback';
-      }
-    });
-
-    async function getAiMove() {
-      const response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ moves: game.history() })
-      });
-      const data = await response.json();
-      if (data.next_move) {
-        const move = game.move(data.next_move);
-        if (move) board.position(game.fen());
-      } else {
-        alert("AI error: " + JSON.stringify(data));
-      }
-    }
-  </script>
+  <script src="script.js"></script>
 </body>
 </html>
