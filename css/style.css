@@ -1,0 +1,9 @@
+#board {
+    width: 400px;
+    margin: 20px auto;
+}
+#status {
+    text-align: center;
+    font-size: 18px;
+    margin-top: 10px;
+}
