@@ -2,10 +2,32 @@ const game = new Chess();
 const board = Chessboard('board', {
   draggable: true,
   position: 'start',
+  onDragStart: onDragStart, // Add drag start handler
   onDrop: onDrop
 });
 
 const statusEl = document.getElementById('status');
+
+function onDragStart(source, piece, position, orientation) {
+  // Only allow White to move (AI plays Black)
+  if (game.turn() !== 'w') {
+    statusEl.innerHTML = 'Wait for Black (AI) to move';
+    return false; // Prevent dragging during Black's turn
+  }
+
+  // Only allow dragging White pieces
+  if (piece.search(/^w/) === -1) {
+    return false; // Prevent dragging Black pieces
+  }
+
+  // Check if the move is legal
+  const moves = game.moves({ square: source, verbose: true });
+  if (moves.length === 0) {
+    return false; // Prevent dragging if no legal moves from this square
+  }
+
+  return true; // Allow dragging
+}
 
 async function onDrop(source, target) {
   // Restrict moves to White's turn
