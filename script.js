@@ -19,9 +19,14 @@ async function onDrop(source, target) {
     try {
       const aiMove = await getAIMove(game.pgn());
       if (aiMove) {
-        game.move(aiMove);
-        board.position(game.fen());
-        updateStatus();
+        try {
+          game.move(aiMove);
+          board.position(game.fen());
+          updateStatus();
+        } catch (err) {
+          statusEl.innerHTML = 'Error: Invalid AI move';
+          console.error('Invalid AI move:', aiMove, err);
+        }
       } else {
         statusEl.innerHTML = 'Error: Could not get AI move';
       }
@@ -32,15 +37,15 @@ async function onDrop(source, target) {
   }
 }
 
-async function getAIMove(pgn) {
+async function getAIMove(movesSoFar) {
   try {
     const response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": "MY_SECRET_KEY_123" // TODO: Move to secure storage
+        "x-api-key": "MY_SECRET_KEY_123"
       },
-      body: JSON.stringify({ moves: pgn })
+      body: JSON.stringify({ moves: movesSoFar })
     });
 
     if (!response.ok) {
