@@ -2,35 +2,35 @@ const game = new Chess();
 const board = Chessboard('board', {
   draggable: true,
   position: 'start',
-  onDragStart: onDragStart, // Add drag start handler
+  onDragStart: onDragStart,
   onDrop: onDrop
 });
 
 const statusEl = document.getElementById('status');
 
 function onDragStart(source, piece, position, orientation) {
-  // Only allow White to move (AI plays Black)
-  if (game.turn() !== 'w') {
+  // Only allow dragging during White's turn
+  if (game.game_over() || game.turn() !== 'w') {
     statusEl.innerHTML = 'Wait for Black (AI) to move';
-    return false; // Prevent dragging during Black's turn
+    return false; // Prevent dragging if game is over or not White's turn
   }
 
   // Only allow dragging White pieces
-  if (piece.search(/^w/) === -1) {
+  if (!piece.startsWith('w')) {
     return false; // Prevent dragging Black pieces
   }
 
-  // Check if the move is legal
-  const moves = game.moves({ square: source, verbose: true });
-  if (moves.length === 0) {
-    return false; // Prevent dragging if no legal moves from this square
+  // Check if there are legal moves from this square
+  const legalMoves = game.moves({ square: source, verbose: true });
+  if (legalMoves.length === 0) {
+    return false; // Prevent dragging if no legal moves exist
   }
 
   return true; // Allow dragging
 }
 
 async function onDrop(source, target) {
-  // Restrict moves to White's turn
+  // Restrict moves to White's turn (redundant but kept for safety)
   if (game.turn() !== 'w') {
     statusEl.innerHTML = 'Wait for Black (AI) to move';
     return 'snapback';
