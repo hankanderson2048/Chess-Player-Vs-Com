@@ -8,7 +8,7 @@ const board = Chessboard('board', {
 });
 
 const statusEl = document.getElementById('status');
-const userId = 'user-' + Math.random().toString(36).substr(2, 9); // Simple unique user ID
+const userId = 'test-user'; // Fixed for testing
 
 function onDragStart(source, piece, position, orientation) {
   if (game.game_over() || game.turn() !== 'w') {
