@@ -3,55 +3,66 @@ const board = Chessboard('board', {
   draggable: true,
   position: 'start',
   onDragStart: onDragStart,
-  onDrop: onDrop
+  onDrop: onDrop,
+  onSnapEnd: onSnapEnd // Added to ensure board syncs after snapback
 });
 
 const statusEl = document.getElementById('status');
 
 function onDragStart(source, piece, position, orientation) {
-  // Only allow dragging during White's turn
+  // Prevent dragging if game is over or not White's turn
   if (game.game_over() || game.turn() !== 'w') {
     statusEl.innerHTML = 'Wait for Black (AI) to move';
-    return false; // Prevent dragging if game is over or not White's turn
+    console.log('Drag blocked: Not White\'s turn or game over');
+    return false;
   }
 
   // Only allow dragging White pieces
-  if (!piece.startsWith('w')) {
-    return false; // Prevent dragging Black pieces
+  if (!piece || !piece.startsWith('w')) {
+    console.log('Drag blocked: Not a White piece', piece);
+    return false;
   }
 
-  // Check if there are legal moves from this square
+  // Check for legal moves from this square
   const legalMoves = game.moves({ square: source, verbose: true });
-  if (legalMoves.length === 0) {
-    return false; // Prevent dragging if no legal moves exist
+  if (!legalMoves || legalMoves.length === 0) {
+    console.log('Drag blocked: No legal moves from', source);
+    return false;
   }
 
-  return true; // Allow dragging
+  console.log('Drag allowed: Legal moves from', source, legalMoves);
+  return true;
 }
 
-async function onDrop(source, target) {
-  // Restrict moves to White's turn (redundant but kept for safety)
+function onDrop(source, target) {
+  // Ensure it's White's turn (redundant but for safety)
   if (game.turn() !== 'w') {
     statusEl.innerHTML = 'Wait for Black (AI) to move';
+    console.log('Drop blocked: Not White\'s turn');
     return 'snapback';
   }
 
-  // See if move is legal
+  // Attempt the move
   const move = game.move({ from: source, to: target, promotion: 'q' });
-  if (move === null) return 'snapback';
+  if (move === null) {
+    statusEl.innerHTML = 'Illegal move, try again';
+    console.log('Illegal move attempted:', source, 'to', target);
+    return 'snapback'; // Snap back on illegal move
+  }
 
   updateStatus();
+  console.log('Legal move made:', move);
 
   // Request AI move for Black
   if (!game.game_over() && game.turn() === 'b') {
-    try {
-      statusEl.innerHTML = 'AI thinking...';
-      const aiMove = await getAIMove(game.pgn());
+    statusEl.innerHTML = 'AI thinking...';
+    getAIMove(game.pgn()).then(aiMove => {
       if (aiMove) {
         try {
           game.move(aiMove);
           board.position(game.fen());
           updateStatus();
+          console.log('AI move applied:', aiMove);
         } catch (err) {
           statusEl.innerHTML = `Error: Invalid AI move (${aiMove})`;
           console.error('Invalid AI move:', aiMove, err);
@@ -60,11 +71,19 @@ async function onDrop(source, target) {
         statusEl.innerHTML = 'Error: Could not get AI move';
         console.error('No AI move returned');
       }
-    } catch (err) {
+    }).catch(err => {
       statusEl.innerHTML = `Error: Failed to connect to AI (${err.message})`;
       console.error('AI move error:', err);
-    }
+    });
   }
+
+  return undefined; // Allow the move
+}
+
+function onSnapEnd() {
+  // Sync board with game state after snapback
+  board.position(game.fen());
+  console.log('Snapback occurred, board synced');
 }
 
 async function getAIMove(movesSoFar) {
@@ -75,7 +94,7 @@ async function getAIMove(movesSoFar) {
         "Content-Type": "application/json",
         "x-api-key": "MY_SECRET_KEY_123"
       },
-      body: JSON.stringify({ moves: movesSoFar || "" }) // Handle empty PGN
+      body: JSON.stringify({ moves: movesSoFar || "" })
     });
 
     if (!response.ok) {
