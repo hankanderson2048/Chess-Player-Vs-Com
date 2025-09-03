@@ -18,7 +18,7 @@ let gameMode = 'new';
 // Initialize AWS SDK for Cognito
 AWS.config.region = 'us-west-1';
 const userPoolId = 'us-west-1_km6tXdEwN';
-const clientId = '37un7tc0bdtgl2hln4l2rgi531';
+const clientId = '1efgpq2ju0qphd7t6uotdt91qe';
 const userPool = new AmazonCognitoIdentity.CognitoUserPool({
     UserPoolId: userPoolId,
     ClientId: clientId
