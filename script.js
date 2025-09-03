@@ -1,3 +1,12 @@
+if (typeof AWS === 'undefined') {
+    console.error('AWS SDK not loaded. Please ensure the AWS SDK script is included.');
+    throw new Error('AWS SDK not loaded');
+}
+if (typeof AmazonCognitoIdentity === 'undefined') {
+    console.error('Cognito Identity SDK not loaded. Please ensure the amazon-cognito-identity-js script is included.');
+    throw new Error('Cognito Identity SDK not loaded');
+}
+
 const game = new Chess();
 const board = Chessboard('board', {
     draggable: true,
@@ -11,22 +20,23 @@ const statusEl = document.getElementById('status');
 
 // Initialize AWS SDK for Cognito
 AWS.config.region = 'us-west-1';
-const userPoolId = 'us-west-1_YOUR_USER_POOL_ID'; // Replace with your User Pool ID
-const clientId = 'YOUR_APP_CLIENT_ID'; // Replace with your App Client ID
-const userPool = new AWSCognito.CognitoIdentityServiceProvider.CognitoUserPool({
+const userPoolId = 'us-west-1_km6tXdEwN';
+const clientId = '37un7tc0bdtgl2hln4l2rgi531';
+const userPool = new AmazonCognitoIdentity.CognitoUserPool({
     UserPoolId: userPoolId,
     ClientId: clientId
 });
 
 let userId = null; // Set after authentication
 let idToken = null; // Cognito ID token for API requests
+let gameMode = 'new'; // New variable: tracks if game is 'new' or 'resumed'
 
 async function authenticateUser(username, password) {
-    const authenticationDetails = new AWSCognito.CognitoIdentityServiceProvider.AuthenticationDetails({
+    const authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails({
         Username: username,
         Password: password
     });
-    const cognitoUser = new AWSCognito.CognitoIdentityServiceProvider.CognitoUser({
+    const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
         Username: username,
         Pool: userPool
     });
@@ -44,7 +54,6 @@ async function authenticateUser(username, password) {
                 reject(err);
             },
             newPasswordRequired: (userAttributes) => {
-                // Handle new password requirement (e.g., for first login)
                 cognitoUser.completeNewPasswordChallenge(password, {}, {
                     onSuccess: (result) => {
                         idToken = result.getIdToken().getJwtToken();
@@ -61,7 +70,7 @@ async function authenticateUser(username, password) {
 
 async function signUp(username, password, email) {
     const attributeList = [
-        new AWSCognito.CognitoIdentityServiceProvider.CognitoUserAttribute({
+        new AmazonCognitoIdentity.CognitoUserAttribute({
             Name: 'email',
             Value: email
         })
@@ -80,7 +89,7 @@ async function signUp(username, password, email) {
 }
 
 function onDragStart(source, piece, position, orientation) {
-    if (!userId) {
+    if (!userId || !idToken) {
         statusEl.innerHTML = 'Please log in to play';
         console.log('Drag blocked: User not authenticated');
         return false;
@@ -104,7 +113,7 @@ function onDragStart(source, piece, position, orientation) {
 }
 
 async function onDrop(source, target) {
-    if (!userId) {
+    if (!userId || !idToken) {
         statusEl.innerHTML = 'Please log in to play';
         console.log('Drop blocked: User not authenticated');
         return 'snapback';
@@ -171,7 +180,7 @@ function onSnapEnd() {
 }
 
 async function resumeGame() {
-    if (!userId) {
+    if (!userId || !idToken) {
         statusEl.innerHTML = 'Please log in to resume a game';
         console.log('Resume blocked: User not authenticated');
         return;
@@ -203,6 +212,7 @@ async function resumeGame() {
                     throw new Error('Invalid PGN format');
                 }
                 board.position(game.fen());
+                gameMode = 'resumed'; // Update gameMode on successful resume
                 updateStatus();
                 console.log('Game resumed with PGN:', pgn);
             } catch (err) {
@@ -212,6 +222,7 @@ async function resumeGame() {
         } else {
             statusEl.innerHTML = 'No saved game found';
             console.log('No PGN returned from server');
+            gameMode = 'new'; // Reset gameMode if no game found
         }
     } catch (err) {
         statusEl.innerHTML = `Error: Failed to resume game (${err.message})`;
@@ -232,6 +243,7 @@ function updateStatus() {
             status += `, ${moveColor} is in check`;
         }
     }
+    status += ` (Mode: ${gameMode})`; // Display gameMode
     statusEl.innerHTML = status;
 }
 
@@ -255,6 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
             idToken = token;
             userId = uid;
             statusEl.innerHTML = 'Logged in, ready to play';
+            gameMode = 'new'; // Reset gameMode on login
             updateStatus();
         } catch (err) {
             statusEl.innerHTML = `Login failed: ${err.message}`;
