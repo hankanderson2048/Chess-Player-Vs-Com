@@ -2,8 +2,70 @@
     width: 400px;
     margin: 20px auto;
 }
+
 #status {
     text-align: center;
     font-size: 18px;
     margin-top: 10px;
+}
+
+#loginContainer, #signupContainer, #gameContainer {
+    text-align: center;
+    margin: 50px auto;
+    max-width: 400px;
+    padding: 20px;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+input {
+    padding: 8px;
+    margin: 5px 0;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 16px;
+}
+
+button {
+    padding: 10px;
+    margin: 5px 0;
+    border: none;
+    border-radius: 4px;
+    background-color: #4CAF50;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #45a049;
+}
+
+#showSignup, #showLogin {
+    background: none;
+    color: #4CAF50;
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+#showSignup:hover, #showLogin:hover {
+    color: #45a049;
+}
+
+#resumeButton {
+    padding: 10px 20px;
+    margin-top: 10px;
+    background-color: #008CBA;
+}
+
+#resumeButton:hover {
+    background-color: #007B9A;
 }

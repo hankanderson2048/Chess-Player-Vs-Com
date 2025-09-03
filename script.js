@@ -8,15 +8,12 @@ if (typeof AmazonCognitoIdentity === 'undefined') {
 }
 
 const game = new Chess();
-const board = Chessboard('board', {
-    draggable: true,
-    position: 'start',
-    onDragStart: onDragStart,
-    onDrop: onDrop,
-    onSnapEnd: onSnapEnd
-});
+let board = null; // Initialize board later after login
+let statusEl = null;
 
-const statusEl = document.getElementById('status');
+let userId = null;
+let idToken = null;
+let gameMode = 'new';
 
 // Initialize AWS SDK for Cognito
 AWS.config.region = 'us-west-1';
@@ -26,10 +23,6 @@ const userPool = new AmazonCognitoIdentity.CognitoUserPool({
     UserPoolId: userPoolId,
     ClientId: clientId
 });
-
-let userId = null; // Set after authentication
-let idToken = null; // Cognito ID token for API requests
-let gameMode = 'new'; // New variable: tracks if game is 'new' or 'resumed'
 
 async function authenticateUser(username, password) {
     const authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails({
@@ -212,7 +205,7 @@ async function resumeGame() {
                     throw new Error('Invalid PGN format');
                 }
                 board.position(game.fen());
-                gameMode = 'resumed'; // Update gameMode on successful resume
+                gameMode = 'resumed';
                 updateStatus();
                 console.log('Game resumed with PGN:', pgn);
             } catch (err) {
@@ -222,7 +215,7 @@ async function resumeGame() {
         } else {
             statusEl.innerHTML = 'No saved game found';
             console.log('No PGN returned from server');
-            gameMode = 'new'; // Reset gameMode if no game found
+            gameMode = 'new';
         }
     } catch (err) {
         statusEl.innerHTML = `Error: Failed to resume game (${err.message})`;
@@ -243,22 +236,56 @@ function updateStatus() {
             status += `, ${moveColor} is in check`;
         }
     }
-    status += ` (Mode: ${gameMode})`; // Display gameMode
+    status += ` (Mode: ${gameMode})`;
     statusEl.innerHTML = status;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Login form
-    const loginForm = document.createElement('form');
-    loginForm.id = 'loginForm';
-    loginForm.innerHTML = `
-        <input type="text" id="username" placeholder="Username" required>
-        <input type="password" id="password" placeholder="Password" required>
-        <button type="submit">Login</button>
+    // Initial login page
+    const loginContainer = document.createElement('div');
+    loginContainer.id = 'loginContainer';
+    loginContainer.style.display = 'block';
+    loginContainer.innerHTML = `
+        <h2>Login</h2>
+        <form id="loginForm">
+            <input type="text" id="username" placeholder="Username" required>
+            <input type="password" id="password" placeholder="Password" required>
+            <button type="submit">Login</button>
+        </form>
+        <p>Don't have an account? <button id="showSignup">Sign Up</button></p>
     `;
-    document.body.appendChild(loginForm);
+    document.body.appendChild(loginContainer);
 
-    loginForm.addEventListener('submit', async (e) => {
+    const signupContainer = document.createElement('div');
+    signupContainer.id = 'signupContainer';
+    signupContainer.style.display = 'none';
+    signupContainer.innerHTML = `
+        <h2>Sign Up</h2>
+        <form id="signupForm">
+            <input type="text" id="signupUsername" placeholder="Username" required>
+            <input type="email" id="signupEmail" placeholder="Email" required>
+            <input type="password" id="signupPassword" placeholder="Password" required>
+            <button type="submit">Sign Up</button>
+        </form>
+        <p>Already have an account? <button id="showLogin">Login</button></p>
+    `;
+    document.body.appendChild(signupContainer);
+
+    // Game container (hidden initially)
+    const gameContainer = document.createElement('div');
+    gameContainer.id = 'gameContainer';
+    gameContainer.style.display = 'none';
+    gameContainer.innerHTML = `
+        <div id="board" style="width: 400px"></div>
+        <div id="status"></div>
+        <button id="resumeButton">Resume Game</button>
+    `;
+    document.body.appendChild(gameContainer);
+
+    statusEl = document.getElementById('status');
+
+    // Login form submission
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const username = document.getElementById('username').value;
         const password = document.getElementById('password').value;
@@ -266,27 +293,26 @@ document.addEventListener('DOMContentLoaded', () => {
             const { idToken: token, userId: uid } = await authenticateUser(username, password);
             idToken = token;
             userId = uid;
-            statusEl.innerHTML = 'Logged in, ready to play';
-            gameMode = 'new'; // Reset gameMode on login
+            loginContainer.style.display = 'none';
+            signupContainer.style.display = 'none';
+            gameContainer.style.display = 'block';
+            board = Chessboard('board', {
+                draggable: true,
+                position: 'start',
+                onDragStart: onDragStart,
+                onDrop: onDrop,
+                onSnapEnd: onSnapEnd
+            });
+            gameMode = 'new';
             updateStatus();
         } catch (err) {
-            statusEl.innerHTML = `Login failed: ${err.message}`;
+            statusEl.innerHTML = `Login failed: ${err.message || err}`;
             console.error('Login error:', err);
         }
     });
 
-    // Sign-up form
-    const signupForm = document.createElement('form');
-    signupForm.id = 'signupForm';
-    signupForm.innerHTML = `
-        <input type="text" id="signupUsername" placeholder="Username" required>
-        <input type="email" id="signupEmail" placeholder="Email" required>
-        <input type="password" id="signupPassword" placeholder="Password" required>
-        <button type="submit">Sign Up</button>
-    `;
-    document.body.appendChild(signupForm);
-
-    signupForm.addEventListener('submit', async (e) => {
+    // Sign-up form submission
+    document.getElementById('signupForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const username = document.getElementById('signupUsername').value;
         const email = document.getElementById('signupEmail').value;
@@ -294,17 +320,24 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await signUp(username, password, email);
             statusEl.innerHTML = 'Sign-up successful, please verify your email';
+            signupContainer.style.display = 'none';
+            loginContainer.style.display = 'block';
         } catch (err) {
-            statusEl.innerHTML = `Sign-up failed: ${err.message}`;
+            statusEl.innerHTML = `Sign-up failed: ${err.message || err}`;
             console.error('Sign-up error:', err);
         }
     });
 
-    // Resume game button
-    const resumeButton = document.createElement('button');
-    resumeButton.innerText = 'Resume Game';
-    resumeButton.onclick = resumeGame;
-    document.body.appendChild(resumeButton);
+    // Toggle between login and sign-up
+    document.getElementById('showSignup').addEventListener('click', () => {
+        loginContainer.style.display = 'none';
+        signupContainer.style.display = 'block';
+    });
+    document.getElementById('showLogin').addEventListener('click', () => {
+        signupContainer.style.display = 'none';
+        loginContainer.style.display = 'block';
+    });
 
-    updateStatus();
+    // Resume game button
+    document.getElementById('resumeButton').addEventListener('click', resumeGame);
 });
