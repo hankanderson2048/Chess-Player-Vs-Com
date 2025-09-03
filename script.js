@@ -8,10 +8,83 @@ const board = Chessboard('board', {
 });
 
 const statusEl = document.getElementById('status');
-// TODO: Replace with dynamic user ID (e.g., from authentication) in production
-const userId = 'test-user';
+
+// Initialize AWS SDK for Cognito
+AWS.config.region = 'us-west-1';
+const userPoolId = 'us-west-1_YOUR_USER_POOL_ID'; // Replace with your User Pool ID
+const clientId = 'YOUR_APP_CLIENT_ID'; // Replace with your App Client ID
+const userPool = new AWSCognito.CognitoIdentityServiceProvider.CognitoUserPool({
+    UserPoolId: userPoolId,
+    ClientId: clientId
+});
+
+let userId = null; // Set after authentication
+let idToken = null; // Cognito ID token for API requests
+
+async function authenticateUser(username, password) {
+    const authenticationDetails = new AWSCognito.CognitoIdentityServiceProvider.AuthenticationDetails({
+        Username: username,
+        Password: password
+    });
+    const cognitoUser = new AWSCognito.CognitoIdentityServiceProvider.CognitoUser({
+        Username: username,
+        Pool: userPool
+    });
+
+    return new Promise((resolve, reject) => {
+        cognitoUser.authenticateUser(authenticationDetails, {
+            onSuccess: (result) => {
+                idToken = result.getIdToken().getJwtToken();
+                userId = result.getIdToken().payload.sub;
+                console.log('Authenticated user, userId:', userId);
+                resolve({ idToken, userId });
+            },
+            onFailure: (err) => {
+                console.error('Authentication error:', err);
+                reject(err);
+            },
+            newPasswordRequired: (userAttributes) => {
+                // Handle new password requirement (e.g., for first login)
+                cognitoUser.completeNewPasswordChallenge(password, {}, {
+                    onSuccess: (result) => {
+                        idToken = result.getIdToken().getJwtToken();
+                        userId = result.getIdToken().payload.sub;
+                        console.log('New password set, userId:', userId);
+                        resolve({ idToken, userId });
+                    },
+                    onFailure: (err) => reject(err)
+                });
+            }
+        });
+    });
+}
+
+async function signUp(username, password, email) {
+    const attributeList = [
+        new AWSCognito.CognitoIdentityServiceProvider.CognitoUserAttribute({
+            Name: 'email',
+            Value: email
+        })
+    ];
+    return new Promise((resolve, reject) => {
+        userPool.signUp(username, password, attributeList, null, (err, result) => {
+            if (err) {
+                console.error('Sign-up error:', err);
+                reject(err);
+            } else {
+                console.log('User signed up:', result.user.getUsername());
+                resolve(result.user);
+            }
+        });
+    });
+}
 
 function onDragStart(source, piece, position, orientation) {
+    if (!userId) {
+        statusEl.innerHTML = 'Please log in to play';
+        console.log('Drag blocked: User not authenticated');
+        return false;
+    }
     if (game.game_over() || game.turn() !== 'w') {
         statusEl.innerHTML = 'Wait for Black (AI) to move';
         console.log('Drag blocked: Not White\'s turn or game over');
@@ -31,6 +104,11 @@ function onDragStart(source, piece, position, orientation) {
 }
 
 async function onDrop(source, target) {
+    if (!userId) {
+        statusEl.innerHTML = 'Please log in to play';
+        console.log('Drop blocked: User not authenticated');
+        return 'snapback';
+    }
     if (game.turn() !== 'w') {
         statusEl.innerHTML = 'Wait for Black (AI) to move';
         console.log('Drop blocked: Not White\'s turn');
@@ -44,7 +122,7 @@ async function onDrop(source, target) {
     }
     console.log('Legal move made:', move);
     updateStatus();
-    
+
     if (!game.game_over() && game.turn() === 'b') {
         statusEl.innerHTML = 'AI thinking...';
         try {
@@ -53,7 +131,7 @@ async function onDrop(source, target) {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    "x-api-key": "518a47b3-8f7f-4cdd-ae16-a9824c3d1710"
+                    "Authorization": `Bearer ${idToken}`
                 },
                 body: JSON.stringify({ action: "move", userId: userId, moves: game.pgn() || "" })
             });
@@ -93,13 +171,18 @@ function onSnapEnd() {
 }
 
 async function resumeGame() {
+    if (!userId) {
+        statusEl.innerHTML = 'Please log in to resume a game';
+        console.log('Resume blocked: User not authenticated');
+        return;
+    }
     try {
         statusEl.innerHTML = 'Loading game...';
         const response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "x-api-key": "518a47b3-8f7f-4cdd-ae16-a9824c3d1710"
+                "Authorization": `Bearer ${idToken}`
             },
             body: JSON.stringify({ action: "resume", userId: userId })
         });
@@ -153,9 +236,62 @@ function updateStatus() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Login form
+    const loginForm = document.createElement('form');
+    loginForm.id = 'loginForm';
+    loginForm.innerHTML = `
+        <input type="text" id="username" placeholder="Username" required>
+        <input type="password" id="password" placeholder="Password" required>
+        <button type="submit">Login</button>
+    `;
+    document.body.appendChild(loginForm);
+
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        try {
+            const { idToken: token, userId: uid } = await authenticateUser(username, password);
+            idToken = token;
+            userId = uid;
+            statusEl.innerHTML = 'Logged in, ready to play';
+            updateStatus();
+        } catch (err) {
+            statusEl.innerHTML = `Login failed: ${err.message}`;
+            console.error('Login error:', err);
+        }
+    });
+
+    // Sign-up form
+    const signupForm = document.createElement('form');
+    signupForm.id = 'signupForm';
+    signupForm.innerHTML = `
+        <input type="text" id="signupUsername" placeholder="Username" required>
+        <input type="email" id="signupEmail" placeholder="Email" required>
+        <input type="password" id="signupPassword" placeholder="Password" required>
+        <button type="submit">Sign Up</button>
+    `;
+    document.body.appendChild(signupForm);
+
+    signupForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('signupUsername').value;
+        const email = document.getElementById('signupEmail').value;
+        const password = document.getElementById('signupPassword').value;
+        try {
+            await signUp(username, password, email);
+            statusEl.innerHTML = 'Sign-up successful, please verify your email';
+        } catch (err) {
+            statusEl.innerHTML = `Sign-up failed: ${err.message}`;
+            console.error('Sign-up error:', err);
+        }
+    });
+
+    // Resume game button
     const resumeButton = document.createElement('button');
     resumeButton.innerText = 'Resume Game';
     resumeButton.onclick = resumeGame;
     document.body.appendChild(resumeButton);
+
     updateStatus();
 });
