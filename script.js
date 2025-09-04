@@ -18,7 +18,7 @@ let username = null; // Store the assigned username
 
 AWS.config.region = 'us-west-1';
 const userPoolId = 'us-west-1_km6tXdEwN';
-const clientId = '6291skmfk1lt0tuh95c7i2oppq'; // Replace with your new public SPA App Client ID
+const clientId = '6291skmfk1lt0tuh95c7i2oppq'; // Your new public SPA App Client ID
 const userPool = new AmazonCognitoIdentity.CognitoUserPool({
     UserPoolId: userPoolId,
     ClientId: clientId
@@ -269,6 +269,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <form id="signupForm">
             <input type="email" id="signupEmail" placeholder="Email" required>
             <input type="password" id="signupPassword" placeholder="Password" required>
+            <input type="text" id="verificationCode" placeholder="Verification Code" required>
             <button type="submit">Sign Up</button>
         </form>
         <p>Already have an account? <button id="showLogin">Login</button></p>
@@ -319,16 +320,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const username = document.getElementById('signupEmail').value;
         const email = document.getElementById('signupEmail').value;
         const password = document.getElementById('signupPassword').value;
+        const verificationCode = document.getElementById('verificationCode').value;
         try {
             const result = await signUp(username, password, email);
-            username = username; // Store the email as username
-            const code = prompt('Enter the verification code sent to your email:');
+            // Store the username in the outer scope
+            username = username; // This is now valid as it updates the outer let username
             const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
                 Username: username,
                 Pool: userPool
             });
             await new Promise((resolve, reject) => {
-                cognitoUser.confirmRegistration(code, true, (err, result) => {
+                cognitoUser.confirmRegistration(verificationCode, true, (err, result) => {
                     if (err) {
                         console.error('Confirmation error:', err);
                         reject(err);
