@@ -38,9 +38,9 @@ async function authenticateUser(usernameParam, password) {
         cognitoUser.authenticateUser(authenticationDetails, {
             onSuccess: (result) => {
                 idToken = result.getIdToken().getJwtToken();
-                userId = result.getIdToken().payload.sub;
+                userId = result.getIdToken().payload.sub; // Ensure this matches the sub
+                console.log('Authenticated user, username:', usernameParam, 'userId:', userId, 'idToken:', idToken);
                 username = usernameParam; // Set username on login
-                console.log('Authenticated user, username:', username, 'userId:', userId, 'idToken:', idToken);
                 resolve({ idToken, userId });
             },
             onFailure: (err) => {
