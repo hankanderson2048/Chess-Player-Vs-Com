@@ -19,7 +19,7 @@ let username = null; // Store the assigned username
 // Initialize AWS SDK for Cognito
 AWS.config.region = 'us-west-1';
 const userPoolId = 'us-west-1_km6tXdEwN';
-const clientId = 'NEW_APP_CLIENT_ID'; // Replace with your new public SPA App Client ID
+const clientId = '6291skmfk1lt0tuh95c7i2oppq'; // Replace with your new public SPA App Client ID
 const userPool = new AmazonCognitoIdentity.CognitoUserPool({
     UserPoolId: userPoolId,
     ClientId: clientId
