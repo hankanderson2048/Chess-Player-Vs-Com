@@ -269,7 +269,6 @@ document.addEventListener('DOMContentLoaded', () => {
         <form id="signupForm">
             <input type="email" id="signupEmail" placeholder="Email" required>
             <input type="password" id="signupPassword" placeholder="Password" required>
-            <input type="text" id="verificationCode" placeholder="Verification Code" required>
             <button type="submit">Sign Up</button>
         </form>
         <p>Already have an account? <button id="showLogin">Login</button></p>
@@ -320,29 +319,34 @@ document.addEventListener('DOMContentLoaded', () => {
         const username = document.getElementById('signupEmail').value;
         const email = document.getElementById('signupEmail').value;
         const password = document.getElementById('signupPassword').value;
-        const verificationCode = document.getElementById('verificationCode').value;
         try {
             const result = await signUp(username, password, email);
             // Store the username in the outer scope
-            username = username; // This is now valid as it updates the outer let username
-            const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
-                Username: username,
-                Pool: userPool
-            });
-            await new Promise((resolve, reject) => {
-                cognitoUser.confirmRegistration(verificationCode, true, (err, result) => {
-                    if (err) {
-                        console.error('Confirmation error:', err);
-                        reject(err);
-                    } else {
-                        console.log('Confirmation successful');
-                        resolve(result);
-                    }
+            username = username; // Update the outer let username
+            // Prompt for verification code after sign-up
+            const code = prompt('Enter the verification code sent to your email:');
+            if (code) {
+                const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
+                    Username: username,
+                    Pool: userPool
                 });
-            });
-            statusEl.innerHTML = 'Sign-up and confirmation successful, please log in';
-            signupContainer.style.display = 'none';
-            loginContainer.style.display = 'block';
+                await new Promise((resolve, reject) => {
+                    cognitoUser.confirmRegistration(code, true, (err, result) => {
+                        if (err) {
+                            console.error('Confirmation error:', err);
+                            reject(err);
+                        } else {
+                            console.log('Confirmation successful');
+                            resolve(result);
+                        }
+                    });
+                });
+                statusEl.innerHTML = 'Sign-up and confirmation successful, please log in';
+                signupContainer.style.display = 'none';
+                loginContainer.style.display = 'block';
+            } else {
+                statusEl.innerHTML = 'Sign-up initiated, but verification code is required. Check your email.';
+            }
         } catch (err) {
             statusEl.innerHTML = `Sign-up failed: ${err.message || err}`;
             console.error('Sign-up error:', err);
