@@ -316,18 +316,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('signupForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const username = document.getElementById('signupEmail').value;
+        const usernameParam = document.getElementById('signupEmail').value;
         const email = document.getElementById('signupEmail').value;
         const password = document.getElementById('signupPassword').value;
         try {
-            const result = await signUp(username, password, email);
-            // Store the username in the outer scope
-            username = username; // Update the outer let username
+            const result = await signUp(usernameParam, password, email);
+            // Update the outer username variable
+            username = usernameParam; // This should now work as it targets the let username
+            console.log('Username set to:', username); // Debug log
             // Prompt for verification code after sign-up
             const code = prompt('Enter the verification code sent to your email:');
             if (code) {
                 const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
-                    Username: username,
+                    Username: usernameParam,
                     Pool: userPool
                 });
                 await new Promise((resolve, reject) => {
