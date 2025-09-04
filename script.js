@@ -16,7 +16,6 @@ let idToken = null;
 let gameMode = 'new';
 let username = null; // Store the assigned username
 
-// Initialize AWS SDK for Cognito
 AWS.config.region = 'us-west-1';
 const userPoolId = 'us-west-1_km6tXdEwN';
 const clientId = '6291skmfk1lt0tuh95c7i2oppq'; // Replace with your new public SPA App Client ID
@@ -25,13 +24,13 @@ const userPool = new AmazonCognitoIdentity.CognitoUserPool({
     ClientId: clientId
 });
 
-async function authenticateUser(username, password) {
+async function authenticateUser(usernameParam, password) {
     const authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails({
-        Username: username,
+        Username: usernameParam,
         Password: password
     });
     const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
-        Username: username,
+        Username: usernameParam,
         Pool: userPool
     });
 
@@ -40,7 +39,8 @@ async function authenticateUser(username, password) {
             onSuccess: (result) => {
                 idToken = result.getIdToken().getJwtToken();
                 userId = result.getIdToken().payload.sub;
-                console.log('Authenticated user, username:', username); // Use stored username
+                username = usernameParam; // Set username on login
+                console.log('Authenticated user, username:', username, 'userId:', userId, 'idToken:', idToken);
                 resolve({ idToken, userId });
             },
             onFailure: (err) => {
@@ -52,6 +52,7 @@ async function authenticateUser(username, password) {
                     onSuccess: (result) => {
                         idToken = result.getIdToken().getJwtToken();
                         userId = result.getIdToken().payload.sub;
+                        username = usernameParam; // Set username
                         console.log('New password set, userId:', userId);
                         resolve({ idToken, userId });
                     },
@@ -129,7 +130,7 @@ async function onDrop(source, target) {
     if (!game.game_over() && game.turn() === 'b') {
         statusEl.innerHTML = 'AI thinking...';
         try {
-            console.log('Sending PGN to server:', game.pgn());
+            console.log('Sending PGN to server:', game.pgn(), 'with userId:', userId, 'and idToken:', idToken);
             const response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
                 method: "POST",
                 headers: {
@@ -139,7 +140,9 @@ async function onDrop(source, target) {
                 body: JSON.stringify({ action: "move", userId: userId, moves: game.pgn() || "" })
             });
             if (!response.ok) {
-                throw new Error(`HTTP error: ${response.status}`);
+                const errorText = await response.text();
+                console.error('API response:', errorText);
+                throw new Error(`HTTP error: ${response.status} - ${errorText}`);
             }
             const data = await response.json();
             if (data.error) {
@@ -190,7 +193,9 @@ async function resumeGame() {
             body: JSON.stringify({ action: "resume", userId: userId })
         });
         if (!response.ok) {
-            throw new Error(`HTTP error: ${response.status}`);
+            const errorText = await response.text();
+            console.error('API response:', errorText);
+            throw new Error(`HTTP error: ${response.status} - ${errorText}`);
         }
         const data = await response.json();
         if (data.error) {
@@ -237,7 +242,7 @@ function updateStatus() {
             status += `, ${moveColor} is in check`;
         }
     }
-    status += ` (Mode: ${gameMode}, User: ${username || 'Unknown'})`; // Display username
+    status += ` (Mode: ${gameMode}, User: ${username || 'Unknown'})`;
     statusEl.innerHTML = status;
 }
 
@@ -248,7 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loginContainer.innerHTML = `
         <h2>Login</h2>
         <form id="loginForm">
-            <input type="text" id="username" placeholder="Username" required>
+            <input type="email" id="username" placeholder="Email" required>
             <input type="password" id="password" placeholder="Password" required>
             <button type="submit">Login</button>
         </form>
@@ -262,7 +267,6 @@ document.addEventListener('DOMContentLoaded', () => {
     signupContainer.innerHTML = `
         <h2>Sign Up</h2>
         <form id="signupForm">
-            <input type="text" id="signupUsername" placeholder="Username" required>
             <input type="email" id="signupEmail" placeholder="Email" required>
             <input type="password" id="signupPassword" placeholder="Password" required>
             <button type="submit">Sign Up</button>
@@ -285,12 +289,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const username = document.getElementById('username').value;
+        const usernameParam = document.getElementById('username').value;
         const password = document.getElementById('password').value;
         try {
-            const { idToken: token, userId: uid } = await authenticateUser(username, password);
+            const { idToken: token, userId: uid } = await authenticateUser(usernameParam, password);
             idToken = token;
             userId = uid;
+            username = usernameParam; // Set username on login
             loginContainer.style.display = 'none';
             signupContainer.style.display = 'none';
             gameContainer.style.display = 'block';
@@ -311,16 +316,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('signupForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const usernameParam = document.getElementById('signupUsername').value;
+        const username = document.getElementById('signupEmail').value;
         const email = document.getElementById('signupEmail').value;
         const password = document.getElementById('signupPassword').value;
         try {
-            const result = await signUp(usernameParam, password, email);
-            username = usernameParam; // Store the username
-            // Add confirmation step
+            const result = await signUp(username, password, email);
+            username = username; // Store the email as username
             const code = prompt('Enter the verification code sent to your email:');
             const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
-                Username: usernameParam,
+                Username: username,
                 Pool: userPool
             });
             await new Promise((resolve, reject) => {
