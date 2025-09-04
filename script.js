@@ -8,17 +8,18 @@ if (typeof AmazonCognitoIdentity === 'undefined') {
 }
 
 const game = new Chess();
-let board = null; // Initialize board later after login
+let board = null;
 let statusEl = null;
 
 let userId = null;
 let idToken = null;
 let gameMode = 'new';
+let username = null; // Store the assigned username
 
 // Initialize AWS SDK for Cognito
 AWS.config.region = 'us-west-1';
 const userPoolId = 'us-west-1_km6tXdEwN';
-const clientId = '6291skmfk1lt0tuh95c7i2oppq';
+const clientId = 'NEW_APP_CLIENT_ID'; // Replace with your new public SPA App Client ID
 const userPool = new AmazonCognitoIdentity.CognitoUserPool({
     UserPoolId: userPoolId,
     ClientId: clientId
@@ -39,7 +40,7 @@ async function authenticateUser(username, password) {
             onSuccess: (result) => {
                 idToken = result.getIdToken().getJwtToken();
                 userId = result.getIdToken().payload.sub;
-                console.log('Authenticated user, userId:', userId);
+                console.log('Authenticated user, username:', username); // Use stored username
                 resolve({ idToken, userId });
             },
             onFailure: (err) => {
@@ -61,7 +62,7 @@ async function authenticateUser(username, password) {
     });
 }
 
-async function signUp(username, password, email) {
+async function signUp(usernameParam, password, email) {
     const attributeList = [
         new AmazonCognitoIdentity.CognitoUserAttribute({
             Name: 'email',
@@ -69,13 +70,13 @@ async function signUp(username, password, email) {
         })
     ];
     return new Promise((resolve, reject) => {
-        userPool.signUp(username, password, attributeList, null, (err, result) => {
+        userPool.signUp(usernameParam, password, attributeList, null, (err, result) => {
             if (err) {
                 console.error('Sign-up error:', err);
                 reject(err);
             } else {
-                console.log('User signed up:', result.user.getUsername());
-                resolve(result.user);
+                console.log('User signed up with username:', usernameParam);
+                resolve({ user: result.user, username: usernameParam });
             }
         });
     });
@@ -236,12 +237,11 @@ function updateStatus() {
             status += `, ${moveColor} is in check`;
         }
     }
-    status += ` (Mode: ${gameMode})`;
+    status += ` (Mode: ${gameMode}, User: ${username || 'Unknown'})`; // Display username
     statusEl.innerHTML = status;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Initial login page
     const loginContainer = document.createElement('div');
     loginContainer.id = 'loginContainer';
     loginContainer.style.display = 'block';
@@ -271,7 +271,6 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
     document.body.appendChild(signupContainer);
 
-    // Game container (hidden initially)
     const gameContainer = document.createElement('div');
     gameContainer.id = 'gameContainer';
     gameContainer.style.display = 'none';
@@ -284,7 +283,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     statusEl = document.getElementById('status');
 
-    // Login form submission
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const username = document.getElementById('username').value;
@@ -311,15 +309,32 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Sign-up form submission
     document.getElementById('signupForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const username = document.getElementById('signupUsername').value;
+        const usernameParam = document.getElementById('signupUsername').value;
         const email = document.getElementById('signupEmail').value;
         const password = document.getElementById('signupPassword').value;
         try {
-            await signUp(username, password, email);
-            statusEl.innerHTML = 'Sign-up successful, please verify your email';
+            const result = await signUp(usernameParam, password, email);
+            username = usernameParam; // Store the username
+            // Add confirmation step
+            const code = prompt('Enter the verification code sent to your email:');
+            const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
+                Username: usernameParam,
+                Pool: userPool
+            });
+            await new Promise((resolve, reject) => {
+                cognitoUser.confirmRegistration(code, true, (err, result) => {
+                    if (err) {
+                        console.error('Confirmation error:', err);
+                        reject(err);
+                    } else {
+                        console.log('Confirmation successful');
+                        resolve(result);
+                    }
+                });
+            });
+            statusEl.innerHTML = 'Sign-up and confirmation successful, please log in';
             signupContainer.style.display = 'none';
             loginContainer.style.display = 'block';
         } catch (err) {
@@ -328,7 +343,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Toggle between login and sign-up
     document.getElementById('showSignup').addEventListener('click', () => {
         loginContainer.style.display = 'none';
         signupContainer.style.display = 'block';
@@ -338,6 +352,5 @@ document.addEventListener('DOMContentLoaded', () => {
         loginContainer.style.display = 'block';
     });
 
-    // Resume game button
     document.getElementById('resumeButton').addEventListener('click', resumeGame);
 });
