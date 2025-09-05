@@ -129,43 +129,56 @@ async function onDrop(source, target) {
 
     if (!game.game_over() && game.turn() === 'b') {
         statusEl.innerHTML = 'AI thinking...';
-        try {
-            console.log('Sending PGN to server:', game.pgn(), 'with userId:', userId, 'and idToken:', idToken);
-            const response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${idToken}`
-                },
-                body: JSON.stringify({ action: "move", userId: userId, moves: game.pgn() || "" })
-            });
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('API response:', errorText);
-                throw new Error(`HTTP error: ${response.status} - ${errorText}`);
-            }
-            const data = await response.json();
-            if (data.error) {
-                throw new Error(data.error);
-            }
-            const aiMove = data.next_move;
-            if (aiMove) {
-                try {
-                    game.move(aiMove);
-                    board.position(game.fen());
-                    updateStatus();
-                    console.log('AI move applied:', aiMove);
-                } catch (err) {
-                    statusEl.innerHTML = `Error: Invalid AI move (${aiMove})`;
-                    console.error('Invalid AI move:', aiMove, err);
+        let aiMove = null;
+        let attempt = 0;
+        const maxAttempts = 3;
+
+        while (attempt < maxAttempts && !aiMove) {
+            try {
+                console.log('Sending PGN to server:', game.pgn(), 'with userId:', userId, 'and idToken:', idToken);
+                const response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${idToken}`
+                    },
+                    body: JSON.stringify({ action: "move", userId: userId, moves: game.pgn() || "", retry: attempt > 0 })
+                });
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('API response:', errorText);
+                    throw new Error(`HTTP error: ${response.status} - ${errorText}`);
                 }
-            } else {
-                statusEl.innerHTML = 'Error: Could not get AI move';
-                console.error('No AI move returned');
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                aiMove = data.next_move;
+                if (aiMove) {
+                    try {
+                        game.move(aiMove);
+                        board.position(game.fen());
+                        updateStatus();
+                        console.log('AI move applied:', aiMove);
+                    } catch (err) {
+                        console.error('Illegal AI move detected:', aiMove, err);
+                        aiMove = null; // Reset for retry
+                        statusEl.innerHTML = `Retry ${attempt + 1}/${maxAttempts} for valid AI move...`;
+                    }
+                } else {
+                    statusEl.innerHTML = 'Error: Could not get AI move';
+                    console.error('No AI move returned');
+                }
+            } catch (err) {
+                console.error('AI move error:', err);
+                aiMove = null;
             }
-        } catch (err) {
-            statusEl.innerHTML = `Error: Failed to connect to AI (${err.message})`;
-            console.error('AI move error:', err);
+            attempt++;
+        }
+
+        if (!aiMove) {
+            statusEl.innerHTML = `Error: Failed to get valid AI move after ${maxAttempts} attempts`;
+            console.error('Max retry attempts reached');
         }
     }
     return undefined;
@@ -199,9 +212,7 @@ async function resumeGame() {
         }
         const data = await response.json();
         if (data.error) {
-            statusEl.innerHTML = `Error: ${data.error}`;
-            console.error('Resume error:', data.error);
-            return;
+            throw new Error(data.error);
         }
         const pgn = data.pgn;
         if (pgn) {
@@ -215,8 +226,40 @@ async function resumeGame() {
                 updateStatus();
                 console.log('Game resumed with PGN:', pgn);
             } catch (err) {
-                statusEl.innerHTML = `Error: Failed to load PGN (${err.message})`;
+                statusEl.innerHTML = `Error: Failed to load PGN (${err.message}). Attempting to correct...`;
                 console.error('PGN load error:', err);
+                // Attempt to fetch corrected PGN
+                const correctionResponse = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${idToken}`
+                    },
+                    body: JSON.stringify({ action: "correct", userId: userId, invalidPgn: pgn })
+                });
+                if (!correctionResponse.ok) {
+                    const errorText = await correctionResponse.text();
+                    console.error('Correction API response:', errorText);
+                    throw new Error(`HTTP error: ${correctionResponse.status} - ${errorText}`);
+                }
+                const correctionData = await correctionResponse.json();
+                if (correctionData.error) {
+                    throw new Error(correctionData.error);
+                }
+                const correctedPgn = correctionData.pgn;
+                if (correctedPgn) {
+                    const valid = game.load_pgn(correctedPgn);
+                    if (!valid) {
+                        throw new Error('Failed to load corrected PGN');
+                    }
+                    board.position(game.fen());
+                    gameMode = 'resumed';
+                    updateStatus();
+                    console.log('Game resumed with corrected PGN:', correctedPgn);
+                } else {
+                    statusEl.innerHTML = 'Error: Could not correct PGN';
+                    console.error('No corrected PGN returned');
+                }
             }
         } else {
             statusEl.innerHTML = 'No saved game found';
@@ -321,10 +364,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const password = document.getElementById('signupPassword').value;
         try {
             const result = await signUp(usernameParam, password, email);
-            // Update the outer username variable
-            username = usernameParam; // This should now work as it targets the let username
-            console.log('Username set to:', username); // Debug log
-            // Prompt for verification code after sign-up
+            username = usernameParam; // Update the outer let username
+            console.log('Username set to:', username);
             const code = prompt('Enter the verification code sent to your email:');
             if (code) {
                 const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
@@ -357,7 +398,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('showSignup').addEventListener('click', () => {
         loginContainer.style.display = 'none';
         signupContainer.style.display = 'block';
-    });
+    }); 
     document.getElementById('showLogin').addEventListener('click', () => {
         signupContainer.style.display = 'none';
         loginContainer.style.display = 'block';

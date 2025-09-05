@@ -38,9 +38,9 @@ async function authenticateUser(usernameParam, password) {
         cognitoUser.authenticateUser(authenticationDetails, {
             onSuccess: (result) => {
                 idToken = result.getIdToken().getJwtToken();
-                userId = result.getIdToken().payload.sub; // Ensure this matches the sub
-                console.log('Authenticated user, username:', usernameParam, 'userId:', userId, 'idToken:', idToken);
+                userId = result.getIdToken().payload.sub;
                 username = usernameParam; // Set username on login
+                console.log('Authenticated user, username:', usernameParam, 'userId:', userId, 'idToken:', idToken);
                 resolve({ idToken, userId });
             },
             onFailure: (err) => {
@@ -129,56 +129,43 @@ async function onDrop(source, target) {
 
     if (!game.game_over() && game.turn() === 'b') {
         statusEl.innerHTML = 'AI thinking...';
-        let aiMove = null;
-        let attempt = 0;
-        const maxAttempts = 3;
-
-        while (attempt < maxAttempts && !aiMove) {
-            try {
-                console.log('Sending PGN to server:', game.pgn(), 'with userId:', userId, 'and idToken:', idToken);
-                const response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${idToken}`
-                    },
-                    body: JSON.stringify({ action: "move", userId: userId, moves: game.pgn() || "", retry: attempt > 0 })
-                });
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('API response:', errorText);
-                    throw new Error(`HTTP error: ${response.status} - ${errorText}`);
-                }
-                const data = await response.json();
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                aiMove = data.next_move;
-                if (aiMove) {
-                    try {
-                        game.move(aiMove);
-                        board.position(game.fen());
-                        updateStatus();
-                        console.log('AI move applied:', aiMove);
-                    } catch (err) {
-                        console.error('Illegal AI move detected:', aiMove, err);
-                        aiMove = null; // Reset for retry
-                        statusEl.innerHTML = `Retry ${attempt + 1}/${maxAttempts} for valid AI move...`;
-                    }
-                } else {
-                    statusEl.innerHTML = 'Error: Could not get AI move';
-                    console.error('No AI move returned');
-                }
-            } catch (err) {
-                console.error('AI move error:', err);
-                aiMove = null;
+        try {
+            console.log('Sending PGN to server:', game.pgn(), 'with userId:', userId, 'and idToken:', idToken);
+            const response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${idToken}`
+                },
+                body: JSON.stringify({ action: "move", userId: userId, moves: game.pgn() || "" })
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('API response:', errorText);
+                throw new Error(`HTTP error: ${response.status} - ${errorText}`);
             }
-            attempt++;
-        }
-
-        if (!aiMove) {
-            statusEl.innerHTML = `Error: Failed to get valid AI move after ${maxAttempts} attempts`;
-            console.error('Max retry attempts reached');
+            const data = await response.json();
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            const aiMove = data.next_move;
+            if (aiMove) {
+                try {
+                    game.move(aiMove);
+                    board.position(game.fen());
+                    updateStatus();
+                    console.log('AI move applied:', aiMove);
+                } catch (err) {
+                    statusEl.innerHTML = `Error: Invalid AI move (${aiMove})`;
+                    console.error('Invalid AI move:', aiMove, err);
+                }
+            } else {
+                statusEl.innerHTML = 'Error: Could not get AI move';
+                console.error('No AI move returned');
+            }
+        } catch (err) {
+            statusEl.innerHTML = `Error: Failed to connect to AI (${err.message})`;
+            console.error('AI move error:', err);
         }
     }
     return undefined;
@@ -212,7 +199,9 @@ async function resumeGame() {
         }
         const data = await response.json();
         if (data.error) {
-            throw new Error(data.error);
+            statusEl.innerHTML = `Error: ${data.error}`;
+            console.error('Resume error:', data.error);
+            return;
         }
         const pgn = data.pgn;
         if (pgn) {
@@ -226,40 +215,8 @@ async function resumeGame() {
                 updateStatus();
                 console.log('Game resumed with PGN:', pgn);
             } catch (err) {
-                statusEl.innerHTML = `Error: Failed to load PGN (${err.message}). Attempting to correct...`;
+                statusEl.innerHTML = `Error: Failed to load PGN (${err.message})`;
                 console.error('PGN load error:', err);
-                // Attempt to fetch corrected PGN
-                const correctionResponse = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${idToken}`
-                    },
-                    body: JSON.stringify({ action: "correct", userId: userId, invalidPgn: pgn })
-                });
-                if (!correctionResponse.ok) {
-                    const errorText = await correctionResponse.text();
-                    console.error('Correction API response:', errorText);
-                    throw new Error(`HTTP error: ${correctionResponse.status} - ${errorText}`);
-                }
-                const correctionData = await correctionResponse.json();
-                if (correctionData.error) {
-                    throw new Error(correctionData.error);
-                }
-                const correctedPgn = correctionData.pgn;
-                if (correctedPgn) {
-                    const valid = game.load_pgn(correctedPgn);
-                    if (!valid) {
-                        throw new Error('Failed to load corrected PGN');
-                    }
-                    board.position(game.fen());
-                    gameMode = 'resumed';
-                    updateStatus();
-                    console.log('Game resumed with corrected PGN:', correctedPgn);
-                } else {
-                    statusEl.innerHTML = 'Error: Could not correct PGN';
-                    console.error('No corrected PGN returned');
-                }
             }
         } else {
             statusEl.innerHTML = 'No saved game found';
@@ -325,6 +282,11 @@ document.addEventListener('DOMContentLoaded', () => {
         <div id="board" style="width: 400px"></div>
         <div id="status"></div>
         <button id="resumeButton">Resume Game</button>
+        <button id="undoButton">Undo</button>
+        <button id="evaluateButton">Evaluate Position</button>
+        <div id="evaluationBar" style="width: 400px; height: 20px; background-color: gray; margin: 10px auto;">
+            <div id="whiteBar" style="height: 100%; background-color: white; width: 50%;"></div>
+        </div>
     `;
     document.body.appendChild(gameContainer);
 
@@ -365,7 +327,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const result = await signUp(usernameParam, password, email);
             username = usernameParam; // Update the outer let username
-            console.log('Username set to:', username);
+            console.log('Username set to:', username); // Debug log
             const code = prompt('Enter the verification code sent to your email:');
             if (code) {
                 const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
@@ -402,6 +364,48 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('showLogin').addEventListener('click', () => {
         signupContainer.style.display = 'none';
         loginContainer.style.display = 'block';
+    });
+
+    document.getElementById('undoButton').addEventListener('click', () => {
+        game.undo();
+        board.position(game.fen());
+        updateStatus();
+        console.log('Undo successful, new PGN:', game.pgn());
+    });
+
+    document.getElementById('evaluateButton').addEventListener('click', async () => {
+        if (!userId || !idToken) {
+            statusEl.innerHTML = 'Please log in to evaluate';
+            return;
+        }
+        statusEl.innerHTML = 'Evaluating position...';
+        try {
+            const response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${idToken}`
+                },
+                body: JSON.stringify({ action: "evaluate", userId: userId, moves: game.pgn() || "" })
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('API response:', errorText);
+                throw new Error(`HTTP error: ${response.status} - ${errorText}`);
+            }
+            const data = await response.json();
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            const whiteChance = data.whiteWinningChance; // Percentage from 0-100
+            const whiteBar = document.getElementById('whiteBar');
+            whiteBar.style.width = whiteChance + '%';
+            statusEl.innerHTML = `White's winning chance: ${whiteChance}%`;
+            console.log('Evaluation complete:', whiteChance);
+        } catch (err) {
+            statusEl.innerHTML = `Error: Failed to evaluate (${err.message})`;
+            console.error('Evaluation error:', err);
+        }
     });
 
     document.getElementById('resumeButton').addEventListener('click', resumeGame);
