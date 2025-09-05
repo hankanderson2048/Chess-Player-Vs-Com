@@ -69,3 +69,25 @@ button:hover {
 #resumeButton:hover {
     background-color: #007B9A;
 }
+
+#evaluationBar {
+    width: 400px;
+    height: 20px;
+    background-color: black;
+    margin: 10px auto;
+    position: relative;
+}
+
+#whiteBar {
+    height: 100%;
+    background-color: white;
+    width: 50%; /* Default */
+}
+
+#blackBar {
+    height: 100%;
+    background-color: black;
+    width: 50%; /* Default */
+    position: absolute;
+    right: 0;
+}
