@@ -14,11 +14,11 @@ let statusEl = null;
 let userId = null;
 let idToken = null;
 let gameMode = 'new';
-let username = null; // Store the assigned username
+let username = null;
 
 AWS.config.region = 'us-west-1';
 const userPoolId = 'us-west-1_km6tXdEwN';
-const clientId = '6291skmfk1lt0tuh95c7i2oppq'; // Your new public SPA App Client ID
+const clientId = '6291skmfk1lt0tuh95c7i2oppq';
 const userPool = new AmazonCognitoIdentity.CognitoUserPool({
     UserPoolId: userPoolId,
     ClientId: clientId
@@ -39,12 +39,10 @@ async function authenticateUser(usernameParam, password) {
             onSuccess: (result) => {
                 idToken = result.getIdToken().getJwtToken();
                 userId = result.getIdToken().payload.sub;
-                username = usernameParam; // Set username on login
-                console.log('Authenticated user, username:', usernameParam, 'userId:', userId, 'idToken:', idToken);
+                username = usernameParam;
                 resolve({ idToken, userId });
             },
             onFailure: (err) => {
-                console.error('Authentication error:', err);
                 reject(err);
             },
             newPasswordRequired: (userAttributes) => {
@@ -52,8 +50,7 @@ async function authenticateUser(usernameParam, password) {
                     onSuccess: (result) => {
                         idToken = result.getIdToken().getJwtToken();
                         userId = result.getIdToken().payload.sub;
-                        username = usernameParam; // Set username
-                        console.log('New password set, userId:', userId);
+                        username = usernameParam;
                         resolve({ idToken, userId });
                     },
                     onFailure: (err) => reject(err)
@@ -73,10 +70,8 @@ async function signUp(usernameParam, password, email) {
     return new Promise((resolve, reject) => {
         userPool.signUp(usernameParam, password, attributeList, null, (err, result) => {
             if (err) {
-                console.error('Sign-up error:', err);
                 reject(err);
             } else {
-                console.log('User signed up with username:', usernameParam);
                 resolve({ user: result.user, username: usernameParam });
             }
         });
@@ -86,51 +81,41 @@ async function signUp(usernameParam, password, email) {
 function onDragStart(source, piece, position, orientation) {
     if (!userId || !idToken) {
         statusEl.innerHTML = 'Please log in to play';
-        console.log('Drag blocked: User not authenticated');
         return false;
     }
     if (game.game_over() || game.turn() !== 'w') {
         statusEl.innerHTML = 'Wait for Black (AI) to move';
-        console.log('Drag blocked: Not White\'s turn or game over');
         return false;
     }
     if (!piece || !piece.startsWith('w')) {
-        console.log('Drag blocked: Not a White piece', piece);
         return false;
     }
     const legalMoves = game.moves({ square: source, verbose: true });
     if (!legalMoves || legalMoves.length === 0) {
-        console.log('Drag blocked: No legal moves from', source);
         return false;
     }
-    console.log('Drag allowed: Legal moves from', source, legalMoves);
     return true;
 }
 
 async function onDrop(source, target) {
     if (!userId || !idToken) {
         statusEl.innerHTML = 'Please log in to play';
-        console.log('Drop blocked: User not authenticated');
         return 'snapback';
     }
     if (game.turn() !== 'w') {
         statusEl.innerHTML = 'Wait for Black (AI) to move';
-        console.log('Drop blocked: Not White\'s turn');
         return 'snapback';
     }
     const move = game.move({ from: source, to: target, promotion: 'q' });
     if (move === null) {
         statusEl.innerHTML = 'Illegal move, try again';
-        console.log('Illegal move attempted:', source, 'to', target);
         return 'snapback';
     }
-    console.log('Legal move made:', move);
     updateStatus();
 
     if (!game.game_over() && game.turn() === 'b') {
         statusEl.innerHTML = 'AI thinking...';
         try {
-            console.log('Sending PGN to server:', game.pgn(), 'with userId:', userId, 'and idToken:', idToken);
             const response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
                 method: "POST",
                 headers: {
@@ -141,7 +126,6 @@ async function onDrop(source, target) {
             });
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error('API response:', errorText);
                 throw new Error(`HTTP error: ${response.status} - ${errorText}`);
             }
             const data = await response.json();
@@ -154,14 +138,12 @@ async function onDrop(source, target) {
                     game.move(aiMove);
                     board.position(game.fen());
                     updateStatus();
-                    console.log('AI move applied:', aiMove);
                 } catch (err) {
                     statusEl.innerHTML = `Error: Invalid AI move (${aiMove})`;
                     console.error('Invalid AI move:', aiMove, err);
                 }
             } else {
                 statusEl.innerHTML = 'Error: Could not get AI move';
-                console.error('No AI move returned');
             }
         } catch (err) {
             statusEl.innerHTML = `Error: Failed to connect to AI (${err.message})`;
@@ -173,13 +155,11 @@ async function onDrop(source, target) {
 
 function onSnapEnd() {
     board.position(game.fen());
-    console.log('Snapback occurred, board synced');
 }
 
 async function resumeGame() {
     if (!userId || !idToken) {
         statusEl.innerHTML = 'Please log in to resume a game';
-        console.log('Resume blocked: User not authenticated');
         return;
     }
     try {
@@ -194,14 +174,11 @@ async function resumeGame() {
         });
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('API response:', errorText);
             throw new Error(`HTTP error: ${response.status} - ${errorText}`);
         }
         const data = await response.json();
         if (data.error) {
-            statusEl.innerHTML = `Error: ${data.error}`;
-            console.error('Resume error:', data.error);
-            return;
+            throw new Error(data.error);
         }
         const pgn = data.pgn;
         if (pgn) {
@@ -213,14 +190,12 @@ async function resumeGame() {
                 board.position(game.fen());
                 gameMode = 'resumed';
                 updateStatus();
-                console.log('Game resumed with PGN:', pgn);
             } catch (err) {
                 statusEl.innerHTML = `Error: Failed to load PGN (${err.message})`;
                 console.error('PGN load error:', err);
             }
         } else {
             statusEl.innerHTML = 'No saved game found';
-            console.log('No PGN returned from server');
             gameMode = 'new';
         }
     } catch (err) {
