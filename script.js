@@ -42,9 +42,7 @@ async function authenticateUser(usernameParam, password) {
                 username = usernameParam;
                 resolve({ idToken, userId });
             },
-            onFailure: (err) => {
-                reject(err);
-            },
+            onFailure: (err) => reject(err),
             newPasswordRequired: (userAttributes) => {
                 cognitoUser.completeNewPasswordChallenge(password, {}, {
                     onSuccess: (result) => {
@@ -69,11 +67,8 @@ async function signUp(usernameParam, password, email) {
     ];
     return new Promise((resolve, reject) => {
         userPool.signUp(usernameParam, password, attributeList, null, (err, result) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve({ user: result.user, username: usernameParam });
-            }
+            if (err) reject(err);
+            else resolve({ user: result.user, username: usernameParam });
         });
     });
 }
@@ -87,13 +82,9 @@ function onDragStart(source, piece, position, orientation) {
         statusEl.innerHTML = 'Wait for Black (AI) to move';
         return false;
     }
-    if (!piece || !piece.startsWith('w')) {
-        return false;
-    }
+    if (!piece || !piece.startsWith('w')) return false;
     const legalMoves = game.moves({ square: source, verbose: true });
-    if (!legalMoves || legalMoves.length === 0) {
-        return false;
-    }
+    if (!legalMoves || legalMoves.length === 0) return false;
     return true;
 }
 
@@ -116,22 +107,36 @@ async function onDrop(source, target) {
     if (!game.game_over() && game.turn() === 'b') {
         statusEl.innerHTML = 'AI thinking...';
         try {
-            const response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
+            const pgn = game.pgn() || "";
+            let response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${idToken}`
                 },
-                body: JSON.stringify({ action: "move", userId: userId, moves: game.pgn() || "" })
+                body: JSON.stringify({ action: "move", userId: userId, moves: pgn })
             });
+            let data = await response.json();
+
+            for (let attempt = 0; attempt < 2 && !response.ok && data.error && data.error.includes('Invalid move'); attempt++) {
+                statusEl.innerHTML = `AI retry ${attempt + 1}...`;
+                response = await fetch("https://hjy3ayrjaf.execute-api.us-west-1.amazonaws.com/move", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${idToken}`
+                    },
+                    body: JSON.stringify({ action: "move", userId: userId, moves: pgn, retry: true })
+                });
+                data = await response.json();
+            }
+
             if (!response.ok) {
                 const errorText = await response.text();
                 throw new Error(`HTTP error: ${response.status} - ${errorText}`);
             }
-            const data = await response.json();
-            if (data.error) {
-                throw new Error(data.error);
-            }
+            if (data.error) throw new Error(data.error);
+
             const aiMove = data.next_move;
             if (aiMove) {
                 try {
@@ -148,6 +153,9 @@ async function onDrop(source, target) {
         } catch (err) {
             statusEl.innerHTML = `Error: Failed to connect to AI (${err.message})`;
             console.error('AI move error:', err);
+            game.undo(); // Revert the player's move on failure
+            board.position(game.fen());
+            updateStatus();
         }
     }
     return undefined;
@@ -177,16 +185,12 @@ async function resumeGame() {
             throw new Error(`HTTP error: ${response.status} - ${errorText}`);
         }
         const data = await response.json();
-        if (data.error) {
-            throw new Error(data.error);
-        }
+        if (data.error) throw new Error(data.error);
         const pgn = data.pgn;
         if (pgn) {
             try {
                 const valid = game.load_pgn(pgn);
-                if (!valid) {
-                    throw new Error('Invalid PGN format');
-                }
+                if (!valid) throw new Error('Invalid PGN format');
                 board.position(game.fen());
                 gameMode = 'resumed';
                 updateStatus();
@@ -213,9 +217,7 @@ function updateStatus() {
         status = 'Game over, drawn position';
     } else {
         status = `${moveColor} to move`;
-        if (game.in_check()) {
-            status += `, ${moveColor} is in check`;
-        }
+        if (game.in_check()) status += `, ${moveColor} is in check`;
     }
     status += ` (Mode: ${gameMode}, User: ${username || 'Unknown'})`;
     statusEl.innerHTML = status;
@@ -275,7 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const { idToken: token, userId: uid } = await authenticateUser(usernameParam, password);
             idToken = token;
             userId = uid;
-            username = usernameParam; // Set username on login
+            username = usernameParam;
             loginContainer.style.display = 'none';
             signupContainer.style.display = 'none';
             gameContainer.style.display = 'block';
@@ -301,8 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const password = document.getElementById('signupPassword').value;
         try {
             const result = await signUp(usernameParam, password, email);
-            username = usernameParam; // Update the outer let username
-            console.log('Username set to:', username); // Debug log
+            username = usernameParam;
             const code = prompt('Enter the verification code sent to your email:');
             if (code) {
                 const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
@@ -345,7 +346,6 @@ document.addEventListener('DOMContentLoaded', () => {
         game.undo();
         board.position(game.fen());
         updateStatus();
-        console.log('Undo successful, new PGN:', game.pgn());
     });
 
     document.getElementById('evaluateButton').addEventListener('click', async () => {
@@ -365,18 +365,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error('API response:', errorText);
                 throw new Error(`HTTP error: ${response.status} - ${errorText}`);
             }
             const data = await response.json();
-            if (data.error) {
-                throw new Error(data.error);
-            }
-            const whiteChance = data.whiteWinningChance; // Percentage from 0-100
+            if (data.error) throw new Error(data.error);
+            const whiteChance = data.whiteWinningChance;
             const whiteBar = document.getElementById('whiteBar');
             whiteBar.style.width = whiteChance + '%';
             statusEl.innerHTML = `White's winning chance: ${whiteChance}%`;
-            console.log('Evaluation complete:', whiteChance);
         } catch (err) {
             statusEl.innerHTML = `Error: Failed to evaluate (${err.message})`;
             console.error('Evaluation error:', err);
